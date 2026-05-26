@@ -5,33 +5,39 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import AbrirChamado from "./pages/AbrirChamado";
+import ConsultarProtocolo from "./pages/ConsultarProtocolo";
+import ChamadoConfirmado from "./pages/ChamadoConfirmado";
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminChamados from "./pages/admin/Chamados";
+import AdminChamadoDetalhe from "./pages/admin/ChamadoDetalhe";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      {/* Público */}
+      <Route path="/" component={Home} />
+      <Route path="/abrir-chamado" component={AbrirChamado} />
+      <Route path="/chamado-confirmado/:protocolo" component={ChamadoConfirmado} />
+      <Route path="/consultar" component={ConsultarProtocolo} />
+
+      {/* Admin */}
+      <Route path="/admin" component={AdminDashboard} />
+      <Route path="/admin/chamados" component={AdminChamados} />
+      <Route path="/admin/chamados/:id" component={AdminChamadoDetalhe} />
+
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="light">
         <TooltipProvider>
-          <Toaster />
+          <Toaster position="top-right" richColors />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
