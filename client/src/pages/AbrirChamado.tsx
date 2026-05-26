@@ -125,11 +125,9 @@ export default function AbrirChamado() {
           const base64 = btoa(binary);
 
           await uploadMutation.mutateAsync({
-            chamadoId: resultado.chamadoId,
-            fileName: arq.file.name,
-            mimeType: arq.file.type,
-            fileSize: arq.file.size,
-            base64,
+            nomeArquivo: arq.file.name,
+            tipoMidia: arq.file.type,
+            dados: base64,
           });
 
           setUploadProgress(Math.round(((i + 1) / arquivos.length) * 100));

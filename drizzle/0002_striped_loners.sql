@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `senhaUnica` varchar(255);

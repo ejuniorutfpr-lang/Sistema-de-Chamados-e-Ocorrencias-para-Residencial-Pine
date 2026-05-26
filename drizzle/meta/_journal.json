@@ -15,6 +15,13 @@
       "when": 1779803253866,
       "tag": "0001_uneven_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1779806417839,
+      "tag": "0002_striped_loners",
+      "breakpoints": true
     }
   ]
 }

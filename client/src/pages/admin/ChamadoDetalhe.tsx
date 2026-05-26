@@ -294,7 +294,7 @@ export default function AdminChamadoDetalhe() {
               <div className="bg-white rounded-2xl p-6 card-shadow">
                 <h2 className="font-serif text-lg text-pine-900 mb-5">Histórico</h2>
 
-                {data.historico.length === 0 ? (
+                {data.atualizacoes.length === 0 ? (
                   <div className="text-center py-8">
                     <Clock className="w-8 h-8 text-pine-200 mx-auto mb-3" />
                     <p className="text-pine-400 text-sm">Nenhuma atualização ainda.</p>
@@ -303,8 +303,8 @@ export default function AdminChamadoDetalhe() {
                   <div className="relative">
                     <div className="absolute left-4 top-0 bottom-0 w-px bg-pine-100" />
                     <div className="space-y-5">
-                      {data.historico.map((item, i) => {
-                        const isLast = i === data.historico.length - 1;
+                      {data.atualizacoes.map((item, i) => {
+                        const isLast = i === data.atualizacoes.length - 1;
                         return (
                           <div key={item.id} className="flex gap-4 relative">
                             <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center z-10 ${isLast ? "pine-gradient" : "bg-pine-100"}`}>

@@ -17,9 +17,11 @@ import {
   getChamadoByProtocolo,
   getEstatisticas,
   listarChamados,
+  getDb,
 } from "./db";
 import { storagePut } from "./storage";
 import { notifyOwner } from "./_core/notification";
+import { verifyPassword, createJWT } from "./auth-helpers";
 
 // ─── Admin guard ──────────────────────────────────────────────────────────────
 
@@ -56,6 +58,53 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    loginSindico: publicProcedure
+      .input(z.object({ senha: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Banco de dados indisponível",
+          });
+        }
+
+        // Buscar qualquer usuário admin com senhaUnica configurada
+        const result = await db.execute(
+          `SELECT id, openId, email, name, senhaUnica FROM users WHERE role = 'admin' AND senhaUnica IS NOT NULL LIMIT 1`
+        );
+
+        const rows = (result as any[])[0];
+        if (!rows || rows.length === 0) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Acesso não configurado",
+          });
+        }
+
+        const sindico = rows[0];
+
+        // Validar senha
+        const senhaValida = await verifyPassword(input.senha, sindico.senhaUnica);
+        if (!senhaValida) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha incorreta" });
+        }
+
+        // Criar JWT
+        const jwtToken = await createJWT({
+          userId: sindico.id,
+          openId: sindico.openId,
+          email: sindico.email,
+          name: sindico.name,
+          role: "admin",
+        });
+
+        // Salvar cookie
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, jwtToken, cookieOptions);
+
+        return { success: true, message: "Login realizado com sucesso" } as const;
+      }),
   }),
 
   // ─── Chamados ──────────────────────────────────────────────────────────────
@@ -99,133 +148,143 @@ export const appRouter = router({
         const chamado = await getChamadoByProtocolo(protocolo);
         if (!chamado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        // Vincular anexos ao chamado
-        if (input.anexosIds && input.anexosIds.length > 0) {
-          // Anexos já foram criados no upload, apenas atualizamos o chamadoId
-          // (feito via upload.vincular abaixo)
-        }
-
-        // Notificar o síndico
-        try {
-          await notifyOwner({
-            title: `Novo chamado: ${protocolo}`,
-            content: `Morador ${input.nomeRequerente} (Unidade ${input.unidade}) abriu um chamado.\nCategoria: ${input.categoria}\nDescrição: ${input.descricao.substring(0, 200)}`,
-          });
-        } catch (_) {}
-
-        return { protocolo, chamadoId: chamado.id };
+        return chamado;
       }),
 
-    // Consulta pública por protocolo
+    // Consulta um chamado pelo protocolo (público)
     consultarProtocolo: publicProcedure
-      .input(z.object({ protocolo: z.string().min(1) }))
+      .input(z.object({ protocolo: z.string() }))
       .query(async ({ input }) => {
-        const chamado = await getChamadoByProtocolo(input.protocolo.trim().toUpperCase());
+        const chamado = await getChamadoByProtocolo(input.protocolo);
         if (!chamado) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Protocolo não encontrado." });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Chamado não encontrado",
+          });
         }
-        const historico = await getAtualizacoesByChamado(chamado.id);
-        const arquivos = await getAnexosByChamado(chamado.id);
-        return { chamado, historico, anexos: arquivos };
+
+        const atualizacoes = await getAtualizacoesByChamado(chamado.id);
+        const anexos = await getAnexosByChamado(chamado.id);
+
+        return { chamado, atualizacoes, anexos };
       }),
 
-    // Listagem admin com filtros
+    // Lista chamados com filtros (admin)
     listar: adminProcedure
       .input(
         z.object({
           status: z.string().optional(),
           categoria: z.string().optional(),
+          busca: z.string().optional(),
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
-          busca: z.string().optional(),
-          page: z.number().min(1).default(1),
-          pageSize: z.number().min(1).max(100).default(20),
+          page: z.number().default(1),
+          pageSize: z.number().default(15),
         })
       )
       .query(async ({ input }) => {
         return listarChamados({
           status: input.status,
           categoria: input.categoria,
+          busca: input.busca,
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
-          busca: input.busca,
           page: input.page,
           pageSize: input.pageSize,
         });
       }),
 
-    // Detalhe de um chamado (admin)
+    // Detalha um chamado (admin)
     detalhar: adminProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const chamado = await getChamadoById(input.id);
-        if (!chamado) throw new TRPCError({ code: "NOT_FOUND" });
-        const historico = await getAtualizacoesByChamado(chamado.id);
-        const arquivos = await getAnexosByChamado(chamado.id);
-        return { chamado, historico, anexos: arquivos };
+        if (!chamado) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Chamado não encontrado",
+          });
+        }
+
+        const atualizacoes = await getAtualizacoesByChamado(chamado.id);
+        const anexos = await getAnexosByChamado(chamado.id);
+
+        return { chamado, atualizacoes, anexos };
       }),
 
-    // Adicionar atualização/resposta
+    // Atualiza status (admin)
+    atualizarStatus: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          novoStatus: StatusEnum,
+        })
+      )
+      .mutation(async ({ input }) => {
+        const chamado = await getChamadoById(input.id);
+        if (!chamado) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Chamado não encontrado",
+          });
+        }
+
+        await atualizarStatusChamado(input.id, input.novoStatus);
+        return { success: true };
+      }),
+
+    // Adiciona atualização/resposta (admin)
     adicionarAtualizacao: adminProcedure
       .input(
         z.object({
           chamadoId: z.number(),
-          mensagem: z.string().min(1).max(2000),
+          mensagem: z.string().min(1).max(5000),
           novoStatus: StatusEnum.optional(),
         })
       )
-      .mutation(async ({ input, ctx }) => {
+      .mutation(async ({ input }) => {
         const chamado = await getChamadoById(input.chamadoId);
-        if (!chamado) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!chamado) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Chamado não encontrado",
+          });
+        }
 
-        const statusAnterior = chamado.status;
-        if (input.novoStatus && input.novoStatus !== statusAnterior) {
+        // Atualizar status se fornecido
+        if (input.novoStatus && input.novoStatus !== chamado.status) {
           await atualizarStatusChamado(input.chamadoId, input.novoStatus);
         }
 
+        // Criar atualização
         await criarAtualizacao({
           chamadoId: input.chamadoId,
-          autor: ctx.user.name ?? "Síndico",
+          autor: "Síndico",
           mensagem: input.mensagem,
-          statusAnterior: input.novoStatus ? statusAnterior : undefined,
-          statusNovo: input.novoStatus,
+          statusAnterior: chamado.status,
+          statusNovo: input.novoStatus || chamado.status,
         });
 
         return { success: true };
       }),
 
-    // Alterar apenas o status
-    atualizarStatus: adminProcedure
-      .input(z.object({ id: z.number(), status: StatusEnum }))
-      .mutation(async ({ input, ctx }) => {
-        const chamado = await getChamadoById(input.id);
-        if (!chamado) throw new TRPCError({ code: "NOT_FOUND" });
-
-        const statusAnterior = chamado.status;
-        await atualizarStatusChamado(input.id, input.status);
-
-        await criarAtualizacao({
-          chamadoId: input.id,
-          autor: ctx.user.name ?? "Síndico",
-          mensagem: `Status alterado de "${statusAnterior}" para "${input.status}".`,
-          statusAnterior,
-          statusNovo: input.status,
-        });
-
-        return { success: true };
-      }),
-
-    // Excluir chamado
+    // Exclui chamado (admin)
     excluir: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         const chamado = await getChamadoById(input.id);
-        if (!chamado) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!chamado) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Chamado não encontrado",
+          });
+        }
+
         await excluirChamado(input.id);
         return { success: true };
       }),
 
-    // Estatísticas para o dashboard
+    // Estatísticas (admin)
     estatisticas: adminProcedure.query(async () => {
       return getEstatisticas();
     }),
@@ -234,50 +293,34 @@ export const appRouter = router({
   // ─── Upload ────────────────────────────────────────────────────────────────
 
   upload: router({
-    // Recebe o arquivo em base64 e salva no S3
     salvar: publicProcedure
       .input(
         z.object({
-          chamadoId: z.number(),
-          fileName: z.string(),
-          mimeType: z.string(),
-          fileSize: z.number().max(50 * 1024 * 1024), // 50MB
-          base64: z.string(),
+          nomeArquivo: z.string(),
+          tipoMidia: z.string(),
+          dados: z.string(), // base64
         })
       )
       .mutation(async ({ input }) => {
-        const allowed = [
-          "image/jpeg",
-          "image/png",
-          "image/webp",
-          "image/gif",
-          "video/mp4",
-          "video/webm",
-          "video/quicktime",
-        ];
-        if (!allowed.includes(input.mimeType)) {
+        try {
+          // Decodificar base64
+          const buffer = Buffer.from(input.dados, "base64");
+
+          // Gerar chave S3
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(7);
+          const chaveS3 = `uploads/${timestamp}-${random}-${input.nomeArquivo}`;
+
+          // Upload para S3
+          const { key, url } = await storagePut(chaveS3, buffer, input.tipoMidia);
+
+          return { key, url, success: true };
+        } catch (error) {
           throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Tipo de arquivo não permitido.",
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao fazer upload",
           });
         }
-
-        const buffer = Buffer.from(input.base64, "base64");
-        const ext = input.fileName.split(".").pop() ?? "bin";
-        const fileKey = `chamados/${input.chamadoId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-        const { key, url } = await storagePut(fileKey, buffer, input.mimeType);
-
-        await criarAnexo({
-          chamadoId: input.chamadoId,
-          fileKey: key,
-          fileUrl: url,
-          fileName: input.fileName,
-          mimeType: input.mimeType,
-          fileSize: input.fileSize,
-        });
-
-        return { key, url };
       }),
   }),
 });
