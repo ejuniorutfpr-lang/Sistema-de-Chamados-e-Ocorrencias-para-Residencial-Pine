@@ -120,7 +120,7 @@ describe("chamados.criar", () => {
     });
     expect(result).toHaveProperty("protocolo");
     expect(result.protocolo).toMatch(/^PINE-/);
-    expect(result).toHaveProperty("chamadoId");
+    expect(result).toHaveProperty("id");
   });
 
   it("rejeita descrição muito curta", async () => {
@@ -144,7 +144,7 @@ describe("chamados.consultarProtocolo", () => {
     const result = await caller.chamados.consultarProtocolo({ protocolo: "PINE-2025-999999" });
     expect(result.chamado.protocolo).toBe("PINE-2025-999999");
     expect(result.chamado.nomeRequerente).toBe("João Silva");
-    expect(result.historico).toBeInstanceOf(Array);
+    expect(result.atualizacoes).toBeInstanceOf(Array);
     expect(result.anexos).toBeInstanceOf(Array);
   });
 
