@@ -1,20 +1,10 @@
 [build]
   command = "pnpm build"
-  functions = "dist"
-  publish = "dist"
-
-[functions]
-  node_bundler = "esbuild"
-  external_node_modules = ["mysql2"]
+  publish = "dist/public"
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/index:*"
   status = 200
 
 [context.production]
